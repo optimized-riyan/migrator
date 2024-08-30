@@ -1,0 +1,18 @@
+{
+    "name": "riyan/migrator",
+    "description": "tool for working with migrations with MySQL support",
+    "type": "library",
+    "scripts": {
+        "post-package-install": [
+            "ln -s vendor/riyan/migrator -t ./"
+        ]
+    },
+    "authors": [
+        {
+            "name": "Riyan Gonsalves",
+            "email": "riyan0350@gmail.com"
+        }
+    ],
+    "minimum-stability": "dev",
+    "require": {}
+}
