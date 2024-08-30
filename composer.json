@@ -2,11 +2,6 @@
     "name": "riyan/migrator",
     "description": "tool for working with migrations with MySQL support",
     "type": "library",
-    "scripts": {
-        "post-package-install": [
-            "ln -s vendor/riyan/migrator -t ./"
-        ]
-    },
     "authors": [
         {
             "name": "Riyan Gonsalves",
