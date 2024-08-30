@@ -1,0 +1,148 @@
+<?php declare(strict_types=1);
+
+$hostname = '?';
+$username = '?';
+$password = '?';
+$database = '?';
+
+$db = mysqli_connect($hostname, $username, $password, $database);
+
+$actions = ['run', 'rollback', 'create'];
+
+if (! is_dir('migrations')) {
+    echo 'migrations directory not found, creating...';
+    mkdir('migrations');
+    exit;
+}
+
+function is_migration(string $file): bool {
+    $pattern = '/^[0-9]{4}_[0-9]{2}_[0-9]{2}_[0-9]{4}_[a-z_]+\.php$/';
+    $res = preg_match($pattern, $file);
+    
+    if ($res === false) {
+        throw new InvalidArgumentException('Check the pattern');
+    }
+
+    return $res === 1;
+}
+
+function sort_migrations(array &$migrations): void {
+    $grouped_by_date = [];
+    foreach ($migrations as $file) {
+        $string_date = str_replace('_', '-', substr($file, 0, 10));
+        $grouped_by_date[$string_date][] = $file;
+        ksort($grouped_by_date);
+    }
+
+    foreach ($grouped_by_date as $_ => $files) {
+        usort($files, function ($file1, $file2) {
+            $count1 = (int)substr($file1, 11, 4);
+            $count2 = (int)substr($file2, 11, 4);
+
+            if ($count1 === $count2) return 0;
+            if ($count1 < $count2) return -1;
+            else return 1;
+        });
+    }
+
+    $sorted_migrations = [];
+    foreach ($grouped_by_date as $_ => $same_date_files) {
+        foreach ($same_date_files as $file) $sorted_migrations[] = $file;
+    }
+
+    $migrations = $sorted_migrations;
+}
+
+if ($argc <= 1) {
+    echo 'please provide the action: ';
+    foreach ($actions as $action) echo $action . ' ';
+    echo PHP_EOL;
+    exit;
+}
+
+$files = scandir('migrations');
+$migrations = array_filter($files, fn ($file) => ! is_dir('migrations/' . $file) && is_migration($file));
+
+if (count($migrations) === 0) {
+    echo 'No migrations to run, exiting...' . PHP_EOL;
+    exit;
+}
+
+$num_filtered = count($files) - count($migrations) - 2; // to compensate for . and ..
+if ($num_filtered > 0)  echo "number of filtered files: " . $num_filtered . PHP_EOL;
+
+sort_migrations($migrations);
+
+if ($argv[1] === 'run') {
+    if ($argc > 2) {
+        echo 'Only one argument expected' . PHP_EOL;
+        exit;
+    }
+    foreach ($migrations as $file) {
+        $realpath = 'migrations/' . $file;
+        $migration = include $realpath;
+        $migration->up($db);
+    }
+    echo 'Ran all migrations gracefully!' . PHP_EOL;
+} else if ($argv[1] === 'rollback') {
+    if ($argc > 2) {
+        echo 'Only one argument expected' . PHP_EOL;
+        exit;
+    }
+    foreach (array_reverse($migrations) as $file) {
+        $realpath = 'migrations/' . $file;
+        $migration = include $realpath;
+        $migration->down($db);
+    }
+    echo 'Rolled back all migrations' . PHP_EOL;
+} else if ($argv[1] === 'create') {
+    if ($argc !== 3) {
+        echo 'Invalid format. Expected migrator.php create \'<migration_description>\'' . PHP_EOL;
+        exit;
+    }
+
+    $template = <<<'EOF'
+    <?php
+
+    return new class {
+        public $tableName;
+        public $query;
+
+        public function __construct()
+        {
+            $this->tableName = '<table-name>';
+            $this->query = 'CREATE TABLE ' . $this->tableName . '(
+            );';
+        }
+
+        public function up(mysqli $db)
+        {
+            $db->query($this->query);
+        }
+
+        public function down(mysqli $db)
+        {
+            $db->query('DROP TABLE IF EXISTS ' . $this->tableName . ';');
+        }
+    };
+    EOF;
+
+    $description = str_replace(' ', '_', $argv[2]);
+
+    $date = date('Y_m_d');
+    $curr_date_files = array_filter($migrations, fn ($file) => substr($file, 0, 10) === $date);
+    $indices = array_map(fn ($file) => (int) substr($file, 11, 4), $curr_date_files);
+
+    $max_index = count($indices) > 0 ? max($indices) : -1;
+
+    $next_index = strval($max_index + 1);
+    $padded_index = str_repeat('0', 4 - strlen($next_index)) . $next_index;
+
+    $filename = 'migrations/' . $date . '_' . $padded_index . '_' . $description . '.php';
+
+    $fp = fopen($filename, 'w');
+    fwrite($fp, $template);
+} else {
+    echo 'unknown argument ' . $argv[1] . PHP_EOL;
+    exit;
+}
